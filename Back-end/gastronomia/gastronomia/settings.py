@@ -9,8 +9,12 @@ https://docs.djangoproject.com/en/5.1/topics/settings/
 For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.1/ref/settings/
 """
-import pymysql
-pymysql.install_as_MySQLdb()
+try:
+    # MySQL en desarrollo local. En producción (Postgres) PyMySQL no es necesario.
+    import pymysql
+    pymysql.install_as_MySQLdb()
+except ImportError:
+    pass
 
 import os
 from pathlib import Path
@@ -43,14 +47,6 @@ def _leer_lista(nombre, por_defecto=''):
     return [v.strip() for v in os.environ.get(nombre, por_defecto).split(',') if v.strip()]
 
 
-def _leer_primero(nombres, por_defecto=''):
-    """Devuelve la primera variable definida de la lista (ej. DB_HOST o, en Railway, MYSQLHOST)."""
-    for nombre in nombres:
-        if os.environ.get(nombre):
-            return os.environ[nombre]
-    return por_defecto
-
-
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.1/howto/deployment/checklist/
 
@@ -62,10 +58,10 @@ DEBUG = _leer_env('DJANGO_DEBUG', 'False').lower() in ('1', 'true', 'yes')
 
 ALLOWED_HOSTS = _leer_lista('DJANGO_ALLOWED_HOSTS', 'localhost,127.0.0.1')
 
-# Railway expone el dominio público del servicio en esta variable.
-_DOMINIO_RAILWAY = os.environ.get('RAILWAY_PUBLIC_DOMAIN', '')
-if _DOMINIO_RAILWAY:
-    ALLOWED_HOSTS.append(_DOMINIO_RAILWAY)
+# Render expone el dominio público del servicio en esta variable.
+_DOMINIO_RENDER = os.environ.get('RENDER_EXTERNAL_HOSTNAME', '')
+if _DOMINIO_RENDER:
+    ALLOWED_HOSTS.append(_DOMINIO_RENDER)
 
 # Las cookies solo viajan por HTTPS cuando DEBUG está apagado (producción).
 AUTH_COOKIE_SECURE = not DEBUG
@@ -73,7 +69,7 @@ SESSION_COOKIE_SECURE = not DEBUG
 CSRF_COOKIE_SECURE = not DEBUG
 
 if not DEBUG:
-    # Railway termina el HTTPS en su proxy y reenvía la petición por HTTP.
+    # Render termina el HTTPS en su proxy y reenvía la petición por HTTP.
     SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
 import cloudinary
@@ -135,8 +131,8 @@ CORS_ALLOW_CREDENTIALS = True
 
 # Deben incluir el esquema (https://...). Se usa, por ejemplo, para entrar al /admin de Django.
 CSRF_TRUSTED_ORIGINS = ["http://localhost:5173"] + _leer_lista('CSRF_TRUSTED_ORIGINS')
-if _DOMINIO_RAILWAY:
-    CSRF_TRUSTED_ORIGINS.append(f"https://{_DOMINIO_RAILWAY}")
+if _DOMINIO_RENDER:
+    CSRF_TRUSTED_ORIGINS.append(f"https://{_DOMINIO_RENDER}")
 
 REST_FRAMEWORK = {
     'DEFAULT_PARSER_CLASSES': [
@@ -205,18 +201,32 @@ WSGI_APPLICATION = 'gastronomia.wsgi.application'
 
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.mysql',  # con PyMySQL (ver pymysql.install_as_MySQLdb arriba)
-        # Railway define MYSQLDATABASE, MYSQLUSER, ...; DB_* tiene prioridad si existen.
-        'NAME': _leer_primero(['DB_NAME', 'MYSQLDATABASE'], 'gastronomia'),
-        'USER': _leer_primero(['DB_USER', 'MYSQLUSER'], 'root'),
-        'PASSWORD': _leer_primero(['DB_PASSWORD', 'MYSQLPASSWORD'], ''),
-        'HOST': _leer_primero(['DB_HOST', 'MYSQLHOST'], '127.0.0.1'),
-        'PORT': int(_leer_primero(['DB_PORT', 'MYSQLPORT'], '3306')),
+        # Desarrollo local: MySQL (con PyMySQL, ver arriba).
+        'ENGINE': 'django.db.backends.mysql',
+        'NAME': _leer_env('DB_NAME', 'gastronomia'),
+        'USER': _leer_env('DB_USER', 'root'),
+        'PASSWORD': _leer_env('DB_PASSWORD', ''),
+        'HOST': _leer_env('DB_HOST', '127.0.0.1'),
+        'PORT': int(_leer_env('DB_PORT', '3306')),
         'OPTIONS': {
             'charset': 'utf8mb4',
         },
     }
 }
+
+# Producción: si existe DATABASE_URL (Neon/Postgres, p. ej. postgresql://user:pass@host/db?sslmode=require)
+# se usa en lugar de la configuración MySQL de arriba.
+_URL_BASE_DATOS = os.environ.get('DATABASE_URL')
+if _URL_BASE_DATOS:
+    import dj_database_url
+
+    DATABASES['default'] = dj_database_url.parse(
+        _URL_BASE_DATOS,
+        conn_max_age=60,
+        conn_health_checks=True,  # Neon pausa la base en reposo: reconecta si la conexión murió
+    )
+    # Compatible con el pooler de Neon (pgbouncer en modo transacción).
+    DATABASES['default']['DISABLE_SERVER_SIDE_CURSORS'] = True
 
 
 # Password validation

@@ -3,7 +3,7 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://REEMPLAZA-CON-TU-DOMINIO.up.railway.app/api/:path*"
+      "destination": "https://REEMPLAZA-CON-TU-SERVICIO.onrender.com/api/:path*"
     },
     {
       "source": "/(.*)",

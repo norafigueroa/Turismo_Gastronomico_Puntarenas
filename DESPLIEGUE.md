@@ -1,146 +1,118 @@
-# Guía de despliegue: Vercel (front-end) + Railway (back-end y MySQL)
+# Guía de despliegue gratuito: Neon + Render + Vercel
 
 ```
-Navegador ──► Vercel (React)  ──/api/*──► Railway (Django + Gunicorn) ──► Railway MySQL
-                  │                                   │
-                  └── un solo dominio para el usuario └── imágenes: Cloudinary
+Navegador ──► Vercel (React) ──/api/*──► Render (Django) ──► Neon (Postgres)
+                  │                            │
+                  └─ un solo dominio           └─ imágenes: Cloudinary
 ```
 
-El navegador solo habla con Vercel. Las peticiones a `/api/...` las reenvía Vercel al back-end
-(regla en `Front-end/sabor_gastronomico/vercel.json`). Así las cookies de sesión son del mismo
-dominio y ningún navegador las bloquea.
+El navegador solo habla con Vercel. Vercel reenvía `/api/...` a Render (regla en
+`Front-end/sabor_gastronomico/vercel.json`), así las cookies de sesión son del mismo dominio.
 
-Orden: **Railway primero** (necesitas su URL para el `vercel.json`), después Vercel.
+**Orden: Neon → Render → Vercel** (cada uno necesita datos del anterior).
+Los planes gratuitos cambian; confirma las condiciones al registrarte.
 
 ---
 
-## 0. Antes de empezar
+## Paso 1. Código en GitHub y secretos ✅ (ya hecho)
 
-- [ ] Haz **commit y push** de todos los cambios a GitHub (Railway y Vercel despliegan desde el repositorio).
-- [ ] **Rota los secretos que estuvieron en el código** (siguen en el historial de git):
-  - Cloudinary: en Settings → API Keys genera un *API secret* nuevo.
-  - Para producción usarás una `DJANGO_SECRET_KEY` nueva (paso 1.3) y una contraseña de MySQL nueva (Railway la genera sola).
-- [ ] Cuentas en [railway.com](https://railway.com) y [vercel.com](https://vercel.com), ambas con GitHub.
+- Código subido a GitHub.
+- Clave de Cloudinary rotada. Ten a mano: *Cloud name*, *API Key* y *API Secret* **nuevos**.
 
-## 1. Railway: base de datos y back-end
+## Paso 2. Neon (base de datos)
 
-### 1.1 Crear el proyecto y MySQL
-1. *New Project* → **Provision MySQL** (o *Database → MySQL*). Anota el nombre del servicio (normalmente `MySQL`).
+1. Entra a [neon.tech](https://neon.tech) → **Sign up** con GitHub.
+2. Crea un proyecto (nombre libre, p. ej. `sabor-gastronomico`). Elige la región más cercana a Oregon/EE. UU. Este
+   si puedes (Render gratuito está en EE. UU.).
+3. En el panel del proyecto pulsa **Connect** y copia la **connection string** (empieza por `postgresql://`
+   y termina en `?sslmode=require`). Ese texto es tu `DATABASE_URL`. **Guárdalo en un bloc de notas.**
+   Contiene tu contraseña: no lo pegues en ningún archivo del proyecto.
 
-### 1.2 Crear el servicio del back-end
-1. En el mismo proyecto: *New → GitHub Repo* → elige `Turismo_Gastronomico_Puntarenas`.
-2. En el servicio: *Settings → Source → **Root Directory*** = `Back-end/gastronomia`.
-   (Railway leerá de ahí `requirements.txt`, `.python-version` y `railway.toml`.)
-3. *Settings → Networking → **Generate Domain***. Te dará algo como `mi-api.up.railway.app`. **Cópialo.**
+## Paso 3. Render (back-end)
 
-### 1.3 Variables del servicio del back-end (pestaña *Variables*)
+1. Entra a [render.com](https://render.com) → **Get Started** con GitHub.
+2. **New +** → **Blueprint** → conecta tu repositorio `Turismo_Gastronomico_Puntarenas` → Render detecta `render.yaml`.
+3. Te pedirá los valores de estas variables:
 
-| Variable | Valor |
-|---|---|
-| `DJANGO_SECRET_KEY` | una clave **nueva** (ver abajo) |
-| `DJANGO_DEBUG` | `False` |
-| `DJANGO_ALLOWED_HOSTS` | `localhost,127.0.0.1` (el dominio de Railway se añade solo) |
-| `MYSQLHOST` | `${{MySQL.MYSQLHOST}}` |
-| `MYSQLPORT` | `${{MySQL.MYSQLPORT}}` |
-| `MYSQLUSER` | `${{MySQL.MYSQLUSER}}` |
-| `MYSQLPASSWORD` | `${{MySQL.MYSQLPASSWORD}}` |
-| `MYSQLDATABASE` | `${{MySQL.MYSQLDATABASE}}` |
-| `CLOUDINARY_CLOUD_NAME` | tu cloud name |
-| `CLOUDINARY_API_KEY` | tu API key |
-| `CLOUDINARY_API_SECRET` | el secret **nuevo** |
+   | Variable | Qué poner |
+   |---|---|
+   | `DATABASE_URL` | la connection string de Neon (Paso 2) |
+   | `CLOUDINARY_CLOUD_NAME` | tu cloud name |
+   | `CLOUDINARY_API_KEY` | la API key nueva |
+   | `CLOUDINARY_API_SECRET` | el API secret nuevo |
 
-- Si tu servicio de base de datos no se llama `MySQL`, cambia ese nombre dentro de `${{...}}`.
-- Generar la clave (en tu PC, con Node o Python):
-  ```bash
-  node -e "console.log(require('crypto').randomBytes(50).toString('base64url'))"
-  ```
-- **No** definas `DB_HOST`, `DB_USER`, etc.: tienen prioridad sobre `MYSQL*`.
+   (`DJANGO_SECRET_KEY` la genera Render sola.)
+4. Pulsa **Apply / Deploy**. El primer despliegue tarda unos minutos. Sigue los *Logs*: al final debe aparecer
+   `Listening at: http://0.0.0.0:...` y, antes, las migraciones y `Creado: Admin General`, etc.
+5. Copia la URL del servicio (algo como `https://sabor-gastronomico-api.onrender.com`).
+   Comprueba que `https://TU-SERVICIO.onrender.com/api/configuracion/` muestra un JSON
+   (la primera vez puede tardar hasta un minuto).
 
-### 1.4 Desplegar
-Railway despliega al guardar las variables. En cada despliegue `railway.toml` ejecuta solo:
-1. `python manage.py migrate` (crea las tablas),
-2. `python manage.py crear_grupos` (crea los roles Admin General, Admin Restaurante y Cliente),
-3. `collectstatic` y `gunicorn`.
+> Si Render te exige tarjeta para los Blueprints, crea el servicio a mano: **New + → Web Service**, mismo
+> repositorio, *Root Directory* `Back-end/gastronomia`, *Runtime* Python 3, *Instance Type* Free, y copia el
+> *Build Command* y el *Start Command* de `render.yaml`; añade las mismas variables más `DJANGO_DEBUG=False`,
+> `DJANGO_SECRET_KEY` (una clave larga aleatoria) y `PYTHON_VERSION=3.12.10`.
 
-Comprueba en *Deployments → Logs* que no haya errores, y abre `https://mi-api.up.railway.app/api/configuracion/`:
-debe mostrar un JSON.
+## Paso 4. Vercel (front-end)
 
-## 2. Vercel: front-end
+1. En `Front-end/sabor_gastronomico/vercel.json` cambia `REEMPLAZA-CON-TU-SERVICIO.onrender.com` por el dominio
+   de tu servicio de Render (sin `https://` en ese texto; deja el resto de la línea igual). Commit y push.
+2. Entra a [vercel.com](https://vercel.com) → **Add New… → Project** → importa el repositorio.
+3. **Root Directory**: `Front-end/sabor_gastronomico`. Framework: Vite (lo detecta solo).
+4. **Environment Variables**: `VITE_GOOGLE_MAPS_API_KEY` = tu clave de Google Maps.
+5. **Deploy**. Vercel te da una URL `https://algo.vercel.app`: ese es el enlace para tu CV.
 
-1. **Antes**, edita `Front-end/sabor_gastronomico/vercel.json` y cambia
-   `REEMPLAZA-CON-TU-DOMINIO.up.railway.app` por tu dominio de Railway (por ejemplo `mi-api.up.railway.app`).
-   Deja intacto el resto de la línea (`https://` delante y `/api/:path*` detrás). Haz commit y push.
-2. En Vercel: *Add New → Project* → importa el repositorio.
-3. Configuración:
-   - **Root Directory**: `Front-end/sabor_gastronomico`
-   - Framework Preset: Vite (lo detecta solo). Build: `npm run build`, Output: `dist`.
-   - **Environment Variables**: `VITE_GOOGLE_MAPS_API_KEY` = tu clave de Google Maps.
-     (No hace falta `VITE_API_URL`: en producción usa `/api` por defecto.)
-4. *Deploy*.
+## Paso 5. Tu usuario Admin General
 
-## 3. Crear tu usuario Admin General
+1. En tu sitio de Vercel: **Registrarse** y crea tu cuenta (la primera petición puede tardar: el back-end despierta).
+2. En Render → tu servicio → **Environment** → añade `ADMIN_GENERAL_USERNAME` = tu nombre de usuario → guarda
+   (Render redespliega solo).
+3. Cierra sesión y vuelve a entrar. Ya tienes el panel `/AdminGeneral`.
 
-1. Entra a tu sitio de Vercel → *Registrarse* y crea tu cuenta normal.
-2. En Railway, servicio del back-end → *Variables* → añade `ADMIN_GENERAL_USERNAME` = tu nombre de usuario.
-3. Redespliega (*Deployments → Redeploy*). El comando `crear_grupos` te asigna el rol de Admin General.
-4. Cierra sesión y vuelve a entrar. Ya puedes usar el panel `/AdminGeneral`.
+## Paso 6. Ajustes finales
 
-(Después puedes borrar esa variable.)
+- **Google Maps**: en Google Cloud Console → Credenciales → tu clave → restricción por sitios web:
+  añade `https://tu-app.vercel.app/*`.
+- **Mantener el back-end despierto** (opcional, recomendado para el CV): en [uptimerobot.com](https://uptimerobot.com)
+  crea un monitor HTTP que visite `https://TU-SERVICIO.onrender.com/api/configuracion/` cada 5 minutos.
+  Así casi nadie ve el arranque lento. Si aun así ocurre, el sitio muestra el aviso
+  «Despertando el servidor…».
+- **Datos de ejemplo**: entra como Admin General / dueño y crea algunos restaurantes y platillos con buenas fotos;
+  un reclutador verá una base vacía si no lo haces.
 
-## 4. Ajustes finales
+## Checklist de pruebas en producción
 
-- **Google Maps**: en Google Cloud Console → Credenciales → tu clave → *Restricciones de sitios web*:
-  añade `https://tu-app.vercel.app/*` (y tu dominio propio si lo tienes).
-- **Cloudinary**: el front sube imágenes directo a Cloudinary con el preset `el_sabor_de_la_perla`
-  (debe existir como preset *unsigned* en tu cuenta).
-- **Dominio propio** (opcional): añádelo en Vercel; no hay que tocar Railway.
-
-## 5. Checklist de pruebas en producción
-
-- [ ] La portada carga y se ven los restaurantes.
+- [ ] La portada carga y se ven restaurantes.
 - [ ] Recargar `/Restaurantes` o `/Login` no da 404.
-- [ ] Registrar un cliente e iniciar sesión (revisa que la sesión sigue al recargar la página).
+- [ ] Registrar un cliente, iniciar sesión, y la sesión sigue al recargar.
 - [ ] Como cliente: agregar un platillo al carrito y hacer un pedido.
 - [ ] Registrar un restaurante; como Admin General, cambiar su estado a *activo*.
-- [ ] Como dueño del restaurante: ver el pedido y cambiar su estado.
-- [ ] Como Admin General: ver mensajes de contacto, blog y configuración.
+- [ ] Como dueño: ver el pedido y cambiar su estado.
+- [ ] Como Admin General: mensajes de contacto, blog y configuración.
 
 ## Si algo falla
 
 | Síntoma | Causa probable |
 |---|---|
-| El sitio carga pero todo da error de red | `vercel.json` aún tiene `REEMPLAZA-CON-TU-DOMINIO` o el dominio está mal escrito |
-| `DisallowedHost` en los logs de Railway | Falta generar el dominio público del servicio (paso 1.2) o `RAILWAY_PUBLIC_DOMAIN` no llegó |
-| `Falta la variable de entorno DJANGO_SECRET_KEY` | No se cargaron las variables (paso 1.3) |
-| El login funciona y al recargar se pierde | No estás entrando por el dominio de Vercel, sino por el de Railway |
-| `Can't connect to MySQL` | Variables `MYSQL*` mal referenciadas (revisa el nombre del servicio en `${{...}}`) |
-| 404 en rutas con `/` final, p. ej. `/api/login/` | Revisa que `vercel.json` conserva `/api/:path*` tal cual |
-| Estáticos del `/admin` sin estilos | Revisa en los logs que `collectstatic` terminó bien |
+| Todo da error de red | `vercel.json` aún tiene `REEMPLAZA-CON-TU-SERVICIO` o el dominio está mal |
+| `DisallowedHost` en los logs de Render | El servicio no se llama como en la URL usada o falta `RENDER_EXTERNAL_HOSTNAME` (Render la define sola) |
+| `Falta la variable de entorno DJANGO_SECRET_KEY` | No se cargó en Render (Paso 3) |
+| `could not connect to server` / `SSL` | `DATABASE_URL` mal copiada; debe terminar en `?sslmode=require` |
+| El login funciona y al recargar se pierde | Estás entrando por el dominio de Render en vez del de Vercel |
+| Primera carga muy lenta | Es el plan gratuito de Render despertando (ver UptimeRobot) |
+| Sitio sin estilos en `/admin` de Django | Revisa en el build de Render que `collectstatic` terminó bien |
 
-## Migrar los datos de tu MySQL local (opcional)
-
-Si ya tienes restaurantes, platillos o usuarios reales en tu MySQL local, expórtalos y cárgalos en Railway
-(usa la URL pública `MYSQL_PUBLIC_URL` del servicio de MySQL desde tu PC):
-
-```bash
-mysqldump -u root -p gastronomia > respaldo.sql
-mysql -h <host-publico> -P <puerto> -u root -p railway < respaldo.sql
-```
-
-Hazlo **después** del primer despliegue (que crea las tablas) o antes, pero no ambos: si importas
-tablas ya existentes se producirán conflictos.
-
-## Desarrollo local (sin cambios)
+## Desarrollo local
 
 ```bash
 cd Back-end/gastronomia
 pip install -r requirements-dev.txt
-cp .env.example .env        # completa los valores
+cp .env.example .env          # completa los valores (MySQL local)
 python manage.py migrate
 python manage.py crear_grupos
 python manage.py runserver
 
 cd Front-end/sabor_gastronomico
 npm install
-npm run dev                 # abre http://localhost:5173 o http://127.0.0.1:5173
+npm run dev                   # http://localhost:5173 o http://127.0.0.1:5173
 ```

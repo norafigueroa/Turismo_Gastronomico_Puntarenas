@@ -60,8 +60,8 @@ class RestauranteFactory(DjangoModelFactory):
     nombre_restaurante = factory.Sequence(lambda n: f"Restaurante {n}")
     descripcion = factory.Faker('sentence', nb_words=10)
     direccion = factory.Faker('address')
-    telefono = factory.Faker('phone_number')
-    email = factory.Faker('email')
+    telefono = factory.Sequence(lambda n: f"2661{n:04d}")  # max_length=15 en el modelo
+    email = factory.Sequence(lambda n: f"restaurante{n}@test.com")  # unique en el modelo
     estado = 'activo'
     verificado = True
     calificacion_promedio = 4.5
@@ -187,8 +187,8 @@ class MensajesContactoFactory(DjangoModelFactory):
 
     nombre = factory.Faker('name')
     correo = factory.Faker('email')
-    telefono = factory.Faker('phone_number')
+    telefono = factory.Sequence(lambda n: f"2661{n:04d}")  # max_length=15 en el modelo
     asunto = factory.Faker('sentence')
     mensaje = factory.Faker('paragraph', nb_sentences=3)
     archivado = False
-    leido = False
+    leido = False
