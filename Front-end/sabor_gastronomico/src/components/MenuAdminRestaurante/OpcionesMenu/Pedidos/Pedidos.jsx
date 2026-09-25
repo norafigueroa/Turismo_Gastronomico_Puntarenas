@@ -112,17 +112,17 @@ function Pedidos() {
             {pedidos.map((pedido) => (
               <tr key={pedido.id}>
                 <td>{pedido.id}</td>
-                <td>{pedido.usuario.username}</td>
+                <td>{pedido.usuario_nombre}</td>
                 <td>{new Date(pedido.fecha_pedido).toLocaleString()}</td>
                 <td>
                   {pedido.detalles.map((item) => (
                     <div key={item.id}>
-                      {item.cantidad}x {item.platillo.nombre} — ₡
-                      {item.subtotal.toLocaleString("es-CR")}
+                      {item.cantidad}x {item.platillo_nombre} — ₡
+                      {Number(item.subtotal).toLocaleString("es-CR")}
                     </div>
                   ))}
                 </td>
-                <td>₡{pedido.total.toLocaleString("es-CR")}</td>
+                <td>₡{Number(pedido.total).toLocaleString("es-CR")}</td>
                 <td>{pedido.metodo_pago}</td>
                 <td>{pedido.estado_pedido.replace("_", " ")}</td>
                 <td>

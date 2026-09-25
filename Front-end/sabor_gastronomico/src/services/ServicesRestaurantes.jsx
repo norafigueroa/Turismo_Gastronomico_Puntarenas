@@ -1,4 +1,6 @@
-const API_URL = "http://127.0.0.1:8000/api/restaurantes/";
+import { API_BASE_URL } from "./apiConfig";
+
+const API_URL = `${API_BASE_URL}/restaurantes/`;
 
 async function postRestaurante(restauranteData) {
     try {

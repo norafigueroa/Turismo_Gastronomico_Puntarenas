@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import "./GeneralRestaurantes.css";
+import { API_BASE_URL } from "../../services/apiConfig";
 import { useNavigate } from "react-router-dom";
 import CartIcon from "../CartIcon/CartIcon";
 import Menu from '../Menu/Menu';
@@ -46,7 +47,7 @@ function GeneralRestaurantes() {
 
   const cargarRestaurantes = async () => {
       try {
-        const response = await fetch("http://localhost:8000/api/restaurantes/");
+        const response = await fetch(`${API_BASE_URL}/restaurantes/`);
         const data = await response.json();
 
         console.log("API devuelve:", data);

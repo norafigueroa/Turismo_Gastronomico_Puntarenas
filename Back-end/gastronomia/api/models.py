@@ -10,7 +10,7 @@ class PerfilUsuario(AbstractUser):
     telefono = models.CharField(max_length=15, blank=True, null=True)
     foto_perfil = CloudinaryField('foto_perfil', blank=True, null=True)
 
-    def _str_(self):
+    def __str__(self):
         return f"Perfil de {self.username}"
 
 
@@ -20,7 +20,7 @@ class Categoria(models.Model):
     descripcion = models.CharField(max_length=255, blank=True, null=True)
     icono = models.CharField(max_length=100, blank=True, null=True)
 
-    def _str_(self):
+    def __str__(self):
         return self.nombre_categoria
 
 
@@ -54,7 +54,7 @@ class Restaurante(models.Model):
     fecha_registro = models.DateTimeField(auto_now_add=True)
     fecha_ultima_actualizacion = models.DateTimeField(auto_now=True)
 
-    def _str_(self):
+    def __str__(self):
         return self.nombre_restaurante
 
 class HorarioRestaurante(models.Model):
@@ -66,7 +66,7 @@ class HorarioRestaurante(models.Model):
 
     horario = models.JSONField(default=dict)
 
-    def _str_(self):
+    def __str__(self):
         return f"Horario de {self.restaurante.nombre_restaurante}"        
 
 # REDES SOCIALES
@@ -85,7 +85,7 @@ class RedSocial(models.Model):
     link = models.URLField(max_length=255)
     icono = models.CharField(max_length=100, blank=True, null=True)
 
-    def _str_(self):
+    def __str__(self):
         return self.get_nombre_red_display()
 
 
@@ -98,7 +98,7 @@ class RestauranteRedSocial(models.Model):
     class Meta:
         unique_together = ('restaurante', 'red_social')
 
-    def _str_(self):
+    def __str__(self):
         return f"{self.restaurante.nombre_restaurante} - {self.red_social}"
 
 
@@ -110,7 +110,7 @@ class CategoriaRestaurante(models.Model):
     class Meta:
         unique_together = ('categoria', 'restaurante')
 
-    def _str_(self):
+    def __str__(self):
         return f"{self.categoria.nombre_categoria} - {self.restaurante.nombre_restaurante}"
 
 
@@ -121,7 +121,7 @@ class FotoRestaurante(models.Model):
     descripcion = models.CharField(max_length=255, blank=True, null=True)
     fecha_subida = models.DateTimeField(auto_now_add=True)
 
-    def _str_(self):
+    def __str__(self):
         return f"Foto de {self.restaurante.nombre_restaurante}"
 
 
@@ -130,7 +130,7 @@ class CategoriaMenu(models.Model):
     nombre_categoria = models.CharField(max_length=100, unique=True)
     descripcion = models.CharField(max_length=255, blank=True, null=True)
 
-    def _str_(self):
+    def __str__(self):
         return self.nombre_categoria
 
 
@@ -149,7 +149,7 @@ class Platillo(models.Model):
     promocion = models.BooleanField(default=False)
     porcentaje = models.DecimalField(max_digits=5, decimal_places=2, blank=True, null=True)
 
-    def _str_(self):
+    def __str__(self):
         return self.nombre_platillo
 
 
@@ -178,7 +178,7 @@ class Pedido(models.Model):
     notas_especiales = models.CharField(max_length=255, blank=True, null=True)
     metodo_pago = models.CharField(max_length=20, choices=METODO_PAGO_CHOICES)
 
-    def _str_(self):
+    def __str__(self):
         return f"Pedido #{self.id} - {self.usuario.username}"
 
 
@@ -189,7 +189,7 @@ class DetallePedido(models.Model):
     precio_unitario = models.DecimalField(max_digits=10, decimal_places=2)
     subtotal = models.DecimalField(max_digits=10, decimal_places=2)
 
-    def _str_(self):
+    def __str__(self):
         return f"{self.cantidad}x {self.platillo.nombre_platillo} - Pedido #{self.pedido.id}"
 
 
@@ -201,7 +201,7 @@ class Resena(models.Model):
     comentario = models.CharField(max_length=255, blank=True, null=True)
     fecha_resena = models.DateTimeField(auto_now_add=True)
 
-    def _str_(self):
+    def __str__(self):
         return f"Reseña de {self.usuario.username} para {self.restaurante.nombre_restaurante}"        
 
 class FotosResena(models.Model):
@@ -209,7 +209,7 @@ class FotosResena(models.Model):
     url_foto = CloudinaryField('foto_resena')
     fecha_subida = models.DateTimeField(auto_now_add=True)
 
-    def _str_(self):
+    def __str__(self):
         return f"Foto reseña {self.resena.id}"
 
 class Testimonio(models.Model):
@@ -219,7 +219,7 @@ class Testimonio(models.Model):
     fecha = models.DateTimeField(auto_now_add=True)
     calificacion = models.IntegerField(blank=True, null=True)
 
-    def _str_(self):
+    def __str__(self):
         return f"{self.nombre} - {self.restaurante.nombre_restaurante}"        
 
 
@@ -229,7 +229,7 @@ class CategoriaBlog(models.Model):
     descripcion = models.CharField(max_length=255, blank=True, null=True)
     icono = models.CharField(max_length=100, blank=True, null=True)
 
-    def _str_(self):
+    def __str__(self):
         return self.nombre_categoria
 
 
@@ -250,14 +250,14 @@ class ArticuloBlog(models.Model):
     estado = models.CharField(max_length=15, choices=ESTADOS, default='borrador')
     destacado = models.BooleanField(default=False)
 
-    def _str_(self):
+    def __str__(self):
         return self.titulo
 
 
 class EtiquetaArticulo(models.Model):
     nombre_etiqueta = models.CharField(max_length=80, unique=True)
 
-    def _str_(self):
+    def __str__(self):
         return self.nombre_etiqueta
 
 
@@ -268,7 +268,7 @@ class ArticuloEtiqueta(models.Model):
     class Meta:
         unique_together = ('articulo', 'etiqueta')
 
-    def _str_(self):
+    def __str__(self):
         return f"{self.articulo} - {self.etiqueta}"
 
 
@@ -328,7 +328,7 @@ class MensajesContacto(models.Model):
     archivado = models.BooleanField(default=False)
     leido = models.BooleanField(default=False)
 
-    def _str_(self):
+    def __str__(self):
         return f"Mensaje de {self.nombre} - {self.asunto}"
 
 #CONFIGURACIÓN
@@ -369,7 +369,7 @@ class ConfiguracionPlataforma(models.Model):
         verbose_name = "Configuración de la Plataforma"
         verbose_name_plural = "Configuración de la Plataforma"
     
-    def _str_(self):
+    def __str__(self):
         return f"Configuración - {self.nombre_plataforma}"
     
     def save(self, *args, **kwargs):

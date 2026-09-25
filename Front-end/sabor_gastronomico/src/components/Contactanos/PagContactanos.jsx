@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import "./PagContactanos.css";
+import { API_BASE_URL } from "../../services/apiConfig";
 import { useNavigate } from "react-router-dom";
 import Swal from "sweetalert2";
 import Instagram from "../../assets/instagram.png";
@@ -88,7 +89,7 @@ function PagContactanos() {
       setCargando(true);
 
       const response = await fetch(
-        "http://localhost:8000/api/mensajes-contacto",
+        `${API_BASE_URL}/mensajes-contacto`,
         {
           method: "POST",
           headers: {

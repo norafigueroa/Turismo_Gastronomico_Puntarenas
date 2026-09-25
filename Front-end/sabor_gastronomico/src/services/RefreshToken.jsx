@@ -1,11 +1,12 @@
 import axios from 'axios';
+import { API_BASE_URL } from './apiConfig';
 
 export async function refreshAccessToken() {
   try {
     console.log('🔄 Renovando token...');
 
     await axios.post(
-      'http://127.0.0.1:8000/api/token/refresh/',
+      `${API_BASE_URL}/token/refresh/`,
       {},
       { withCredentials: true }
     );

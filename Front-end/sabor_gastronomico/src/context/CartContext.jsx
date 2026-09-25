@@ -26,7 +26,11 @@ export function CartProvider({ children }) {
         );
       }
 
-      return [...prev, { ...item, cantidad: 1 }];
+      // El carrito guarda el precio vigente (con promoción), igual que lo cobra el servidor.
+      const precioVigente =
+        item.promocion && item.precio_descuento ? item.precio_descuento : item.precio;
+
+      return [...prev, { ...item, precio: precioVigente, cantidad: 1 }];
     });
   }
 

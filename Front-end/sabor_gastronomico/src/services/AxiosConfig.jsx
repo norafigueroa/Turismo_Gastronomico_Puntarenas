@@ -1,27 +1,13 @@
 import axios from 'axios';
-import cookies from 'js-cookie';
+import { API_BASE_URL } from './apiConfig';
 
 const axiosInstance = axios.create({
-  baseURL: 'http://127.0.0.1:8000/api/',
-  withCredentials: true, // lo dejamos como lo tienes
+  baseURL: `${API_BASE_URL}/`,
+  withCredentials: true, // los tokens viajan en cookies HttpOnly
   headers: {
     'Content-Type': 'application/json',
   },
 });
-
-// ==================== INTERCEPTOR DE REQUEST ====================
-axiosInstance.interceptors.request.use(
-  (config) => {
-    const access = cookies.get('access_token');
-    console.log("TOKEN ENVIADO 👉", access);
-    if (access) {
-      config.headers.Authorization = `Bearer ${access}`;
-      console.log("AUTH HEADER 👉", config.headers.Authorization);
-    }
-    return config;
-  },
-  (error) => Promise.reject(error)
-);
 
 // ==================== INTERCEPTOR DE RESPUESTA ====================
 axiosInstance.interceptors.response.use(

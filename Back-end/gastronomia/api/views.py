@@ -1,103 +1,144 @@
-from rest_framework.generics import ListCreateAPIView, RetrieveUpdateDestroyAPIView, ListAPIView, CreateAPIView, DestroyAPIView, UpdateAPIView, RetrieveAPIView, RetrieveUpdateAPIView
+from rest_framework.generics import ListCreateAPIView, RetrieveUpdateDestroyAPIView, ListAPIView, CreateAPIView, UpdateAPIView, RetrieveUpdateAPIView
 from .models import *
 from .serializers import *
-from rest_framework.permissions import IsAuthenticatedOrReadOnly, AllowAny, IsAuthenticated
+from .permissions import (
+    EsAdminGeneral,
+    EsAdminGeneralOSoloLectura,
+    EsPersonalOSoloLectura,
+    EsPropietarioRestauranteOSoloLectura,
+    EsAutorOAdminGeneralOSoloLectura,
+    EsAdminGeneralOMismoUsuario,
+    PermisoPedido,
+    RestaurantePropioMixin,
+    es_admin_general,
+    es_propietario,
+)
+from rest_framework.permissions import IsAuthenticatedOrReadOnly, AllowAny, IsAuthenticated, SAFE_METHODS
 from rest_framework.response import Response
 from rest_framework import status
+from rest_framework.exceptions import ValidationError, PermissionDenied
 from django.contrib.auth.models import Group
-from rest_framework.decorators import action
-from rest_framework.views import APIView
 from django.db import transaction
-from django.shortcuts import get_object_or_404
-from rest_framework_simplejwt.authentication import JWTAuthentication
-from .auth import CookieJWTAuthentication
+from django.db.models import Q
+
+# Las vistas que no declaran permission_classes exigen sesión (ver settings.py).
+# Convención: lectura pública / escritura por rol, salvo que se indique lo contrario.
+
 
 # --- USUARIOS ---
 class PerfilUsuarioListCreateView(ListCreateAPIView):
+    """Listar y crear usuarios (con cualquier rol) es exclusivo del Admin General."""
     queryset = PerfilUsuario.objects.all()
     serializer_class = PerfilUsuarioSerializer
+    permission_classes = [EsAdminGeneral]
 
 class PerfilUsuarioDetailView(RetrieveUpdateDestroyAPIView):
     queryset = PerfilUsuario.objects.all()
     serializer_class = PerfilUsuarioSerializer
+    permission_classes = [EsAdminGeneralOMismoUsuario]
 
 # --- GRUPOS ---
 class GroupListCreateView(ListCreateAPIView):
     queryset = Group.objects.all()
     serializer_class = GroupSerializer
+    permission_classes = [EsAdminGeneral]
 
 class GroupDetailView(RetrieveUpdateDestroyAPIView):
     queryset = Group.objects.all()
     serializer_class = GroupSerializer
+    permission_classes = [EsAdminGeneral]
 
 # --- CATEGORÍAS ---
 class CategoriaListCreateView(ListCreateAPIView):
     queryset = Categoria.objects.all()
     serializer_class = CategoriaSerializer
+    permission_classes = [EsAdminGeneralOSoloLectura]
 
 class CategoriaDetailView(RetrieveUpdateDestroyAPIView):
     queryset = Categoria.objects.all()
     serializer_class = CategoriaSerializer
+    permission_classes = [EsAdminGeneralOSoloLectura]
 
 # --- RESTAURANTES ---
 class RestauranteListCreateView(ListCreateAPIView):
+    """Crear restaurantes desde aquí es del Admin General; los dueños se registran en /register-restaurante."""
     queryset = Restaurante.objects.all()
     serializer_class = RestauranteSerializer
-    #permission_classes = [IsAuthenticatedOrReadOnly]
+    permission_classes = [EsAdminGeneralOSoloLectura]
 
 class RestauranteDetailView(RetrieveUpdateDestroyAPIView):
     queryset = Restaurante.objects.all()
     serializer_class = RestauranteSerializer
-    #permission_classes = [IsAuthenticatedOrReadOnly]
+    permission_classes = [EsPropietarioRestauranteOSoloLectura]
+    restaurante_lookup = 'self'
+    propietario_puede_eliminar = False
 
 # --- HORARIOS ---
 
-class HorarioListCreateView(ListCreateAPIView):
+class HorarioListCreateView(RestaurantePropioMixin, ListCreateAPIView):
     queryset = HorarioRestaurante.objects.all()
     serializer_class = HorarioRestauranteSerializer
+    permission_classes = [EsPropietarioRestauranteOSoloLectura]
 
 
-class HorarioDetailView(RetrieveUpdateDestroyAPIView):
+class HorarioDetailView(RestaurantePropioMixin, RetrieveUpdateDestroyAPIView):
     serializer_class = HorarioRestauranteSerializer
+    permission_classes = [EsPropietarioRestauranteOSoloLectura]
     lookup_field = 'restaurante_id'
     lookup_url_kwarg = 'restaurante_id'
 
     def get_queryset(self):
         restaurante_id = self.kwargs.get('restaurante_id')
-        return HorarioRestaurante.objects.filter(restaurante_id=restaurante_id)   
+        return HorarioRestaurante.objects.filter(restaurante_id=restaurante_id)
 
 
 # --- CATEGORIA-RESTAURANTE ---
-class CategoriaRestauranteListCreateView(ListCreateAPIView):
+class CategoriaRestauranteListCreateView(RestaurantePropioMixin, ListCreateAPIView):
     queryset = CategoriaRestaurante.objects.all()
     serializer_class = CategoriaRestauranteSerializer
+    permission_classes = [EsPropietarioRestauranteOSoloLectura]
 
-class CategoriaRestauranteDetailView(RetrieveUpdateDestroyAPIView):
+class CategoriaRestauranteDetailView(RestaurantePropioMixin, RetrieveUpdateDestroyAPIView):
     queryset = CategoriaRestaurante.objects.all()
     serializer_class = CategoriaRestauranteSerializer
+    permission_classes = [EsPropietarioRestauranteOSoloLectura]
 
 # --- FOTOS RESTAURANTE ---
-class FotoRestauranteListCreateView(ListCreateAPIView):
+class FotoRestauranteListCreateView(RestaurantePropioMixin, ListCreateAPIView):
     queryset = FotoRestaurante.objects.all()
     serializer_class = FotoRestauranteSerializer
+    permission_classes = [EsPropietarioRestauranteOSoloLectura]
 
-class FotoRestauranteDetailView(RetrieveUpdateDestroyAPIView):
+class FotoRestauranteDetailView(RestaurantePropioMixin, RetrieveUpdateDestroyAPIView):
     queryset = FotoRestaurante.objects.all()
     serializer_class = FotoRestauranteSerializer
+    permission_classes = [EsPropietarioRestauranteOSoloLectura]
 
 # --- CATEGORIA MENÚ ---
 class CategoriaMenuListCreateView(ListCreateAPIView):
     queryset = CategoriaMenu.objects.all()
     serializer_class = CategoriaMenuSerializer
+    permission_classes = [EsPersonalOSoloLectura]
 
 class CategoriaMenuDetailView(RetrieveUpdateDestroyAPIView):
+    """
+    Las categorías del menú son compartidas por todos los restaurantes y borrarlas
+    elimina en cascada los platillos que las usan, así que solo el Admin General
+    puede eliminarlas. Editarlas queda abierto al personal de restaurantes.
+    """
     queryset = CategoriaMenu.objects.all()
     serializer_class = CategoriaMenuSerializer
 
+    def get_permissions(self):
+        if self.request.method == 'DELETE':
+            return [EsAdminGeneral()]
+        return [EsPersonalOSoloLectura()]
+
 # --- PLATILLOS ---
-class PlatilloListCreateView(ListCreateAPIView):
+class PlatilloListCreateView(RestaurantePropioMixin, ListCreateAPIView):
     queryset = Platillo.objects.all()
     serializer_class = PlatilloSerializer
+    permission_classes = [EsPropietarioRestauranteOSoloLectura]
 
     def get_queryset(self):
         queryset = super().get_queryset()
@@ -108,52 +149,73 @@ class PlatilloListCreateView(ListCreateAPIView):
 
         return queryset
 
-class PlatilloDetailView(RetrieveUpdateDestroyAPIView):
+class PlatilloDetailView(RestaurantePropioMixin, RetrieveUpdateDestroyAPIView):
     queryset = Platillo.objects.all()
     serializer_class = PlatilloSerializer
+    permission_classes = [EsPropietarioRestauranteOSoloLectura]
 
-class ActualizarPromocionPlatillo(UpdateAPIView):
+class ActualizarPromocionPlatillo(RestaurantePropioMixin, UpdateAPIView):
     queryset = Platillo.objects.all()
-    serializer_class = PlatilloSerializer    
+    serializer_class = PlatilloSerializer
+    permission_classes = [EsPropietarioRestauranteOSoloLectura]
 
 # --- PEDIDOS ---
+def _pedidos_visibles(usuario):
+    """Pedidos que un usuario puede ver: los suyos y los de sus restaurantes (todos, si es Admin General)."""
+    pedidos = Pedido.objects.select_related('usuario', 'restaurante')
+    if not es_admin_general(usuario):
+        pedidos = pedidos.filter(Q(usuario=usuario) | Q(restaurante__usuario_propietario=usuario))
+    return pedidos.order_by('-fecha_pedido')
+
+
 class PedidoListAdminView(ListAPIView):
     """
-    Vista para que el admin de un restaurante vea solo sus pedidos.
+    Vista para que el admin de un restaurante vea solo los pedidos de sus restaurantes.
     """
     serializer_class = PedidoSerializer
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        # Obtiene el restaurante del usuario logueado
-        restaurante_id = self.request.user.restaurante.id
-        return Pedido.objects.filter(restaurante_id=restaurante_id).order_by('-fecha_pedido')
+        return (
+            Pedido.objects
+            .select_related('usuario', 'restaurante')
+            .filter(restaurante__usuario_propietario=self.request.user)
+            .order_by('-fecha_pedido')
+        )
 
 class PedidoListCreateView(ListCreateAPIView):
-    queryset = Pedido.objects.all().order_by('-fecha_pedido')
-    serializer_class = CrearPedidoSerializer
-    #authentication_classes = [CookieJWTAuthentication]
-    #permission_classes = [IsAuthenticated]
+    """
+    GET: pedidos del usuario (más los de sus restaurantes; todos si es Admin General).
+    POST: crea un pedido. Los precios y totales los calcula el servidor.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get_serializer_class(self):
+        if self.request.method == 'POST':
+            return CrearPedidoSerializer
+        return PedidoSerializer
 
     def get_queryset(self):
-        return Pedido.objects.filter(usuario=self.request.user).order_by('-fecha_pedido')
+        return _pedidos_visibles(self.request.user)
 
+    @transaction.atomic
     def perform_create(self, serializer):
-        serializer.save(usuario=self.request.user)
+        serializer.save()
 
 class PedidoDetailView(RetrieveUpdateDestroyAPIView):
-    queryset = Pedido.objects.all()
-    serializer_class = PedidoSerializer
-    #permission_classes = [IsAuthenticatedOrReadOnly]
+    """
+    El cliente y el dueño del restaurante pueden ver el pedido; solo el dueño
+    (o el Admin General) puede cambiar su estado o eliminarlo.
+    """
+    permission_classes = [PermisoPedido]
 
-""" # --- DETALLE PEDIDO ---
-class DetallePedidoListCreateView(ListCreateAPIView):
-    queryset = DetallePedido.objects.all()
-    serializer_class = DetallePedidoSerializer
+    def get_queryset(self):
+        return _pedidos_visibles(self.request.user)
 
-class DetallePedidoDetailView(RetrieveUpdateDestroyAPIView):
-    queryset = DetallePedido.objects.all()
-    serializer_class = DetallePedidoSerializer """
+    def get_serializer_class(self):
+        if self.request.method in SAFE_METHODS:
+            return PedidoSerializer
+        return PedidoEstadoSerializer
 
 # --- RESEÑAS ---
 class ResenaListCreateView(ListCreateAPIView):
@@ -161,23 +223,49 @@ class ResenaListCreateView(ListCreateAPIView):
     serializer_class = ResenaSerializer
     permission_classes = [IsAuthenticatedOrReadOnly]
 
+    def perform_create(self, serializer):
+        serializer.save(usuario=self.request.user)
+
 class ResenaDetailView(RetrieveUpdateDestroyAPIView):
     queryset = Resena.objects.all()
     serializer_class = ResenaSerializer
-    permission_classes = [IsAuthenticatedOrReadOnly]
+    permission_classes = [EsAutorOAdminGeneralOSoloLectura]
 
 # --- FOTOS RESEÑA ---
-class FotosResenaListCreateView(ListCreateAPIView):
+class ResenaPropiaMixin:
+    """La foto solo se puede asociar a una reseña propia (o ser Admin General)."""
+
+    def _verificar_resena(self, serializer):
+        resena = serializer.validated_data.get('resena')
+        if resena is not None and resena.usuario_id != self.request.user.id and not es_admin_general(self.request.user):
+            raise PermissionDenied('Solo puedes agregar fotos a tus propias reseñas.')
+
+    def perform_create(self, serializer):
+        self._verificar_resena(serializer)
+        super().perform_create(serializer)
+
+    def perform_update(self, serializer):
+        self._verificar_resena(serializer)
+        super().perform_update(serializer)
+
+
+class FotosResenaListCreateView(ResenaPropiaMixin, ListCreateAPIView):
     queryset = FotosResena.objects.all()
     serializer_class = FotosResenaSerializer
+    permission_classes = [IsAuthenticatedOrReadOnly]
 
-class FotosResenaDetailView(RetrieveUpdateDestroyAPIView):
+class FotosResenaDetailView(ResenaPropiaMixin, RetrieveUpdateDestroyAPIView):
     queryset = FotosResena.objects.all()
     serializer_class = FotosResenaSerializer
+    permission_classes = [EsAutorOAdminGeneralOSoloLectura]
+    autor_lookup = 'resena.usuario'
 
+# --- TESTIMONIOS ---
 class TestimonioListCreateView(ListCreateAPIView):
-    queryset =Testimonio.objects.all()
+    """Cualquier visitante puede dejar un testimonio (es anónimo, con nombre libre)."""
+    queryset = Testimonio.objects.all()
     serializer_class = TestimonioSerializer
+    permission_classes = [AllowAny]
 
     def get_queryset(self):
         queryset = super().get_queryset()
@@ -188,54 +276,76 @@ class TestimonioListCreateView(ListCreateAPIView):
 
         return queryset
 
-class TestimonioDetailView(RetrieveUpdateDestroyAPIView):
+class TestimonioDetailView(RestaurantePropioMixin, RetrieveUpdateDestroyAPIView):
     queryset = Testimonio.objects.all()
-    serializer_class = TestimonioSerializer    
+    serializer_class = TestimonioSerializer
+    permission_classes = [EsPropietarioRestauranteOSoloLectura]
 
 # --- CATEGORIA BLOG ---
 class CategoriaBlogListCreateView(ListCreateAPIView):
     queryset = CategoriaBlog.objects.all()
     serializer_class = CategoriaBlogSerializer
+    permission_classes = [EsAdminGeneralOSoloLectura]
 
 class CategoriaBlogDetailView(RetrieveUpdateDestroyAPIView):
     queryset = CategoriaBlog.objects.all()
     serializer_class = CategoriaBlogSerializer
+    permission_classes = [EsAdminGeneralOSoloLectura]
 
 # --- ARTICULO BLOG ---
-class ArticuloBlogListCreateView(ListCreateAPIView):
-    queryset = ArticuloBlog.objects.all()
-    serializer_class = ArticuloBlogSerializer
+class ArticulosVisiblesMixin:
+    """Los borradores e inactivos solo los ve el Admin General."""
 
-class ArticuloBlogDetailView(RetrieveUpdateDestroyAPIView):
-    queryset = ArticuloBlog.objects.all()
+    def get_queryset(self):
+        queryset = ArticuloBlog.objects.all()
+        if not es_admin_general(self.request.user):
+            queryset = queryset.filter(estado='publicado')
+        return queryset
+
+
+class ArticuloBlogListCreateView(ArticulosVisiblesMixin, ListCreateAPIView):
     serializer_class = ArticuloBlogSerializer
+    permission_classes = [EsAdminGeneralOSoloLectura]
+
+class ArticuloBlogDetailView(ArticulosVisiblesMixin, RetrieveUpdateDestroyAPIView):
+    serializer_class = ArticuloBlogSerializer
+    permission_classes = [EsAdminGeneralOSoloLectura]
 
 # --- ETIQUETA ARTICULO ---
 class EtiquetaArticuloListCreateView(ListCreateAPIView):
     queryset = EtiquetaArticulo.objects.all()
     serializer_class = EtiquetaArticuloSerializer
+    permission_classes = [EsAdminGeneralOSoloLectura]
 
 class EtiquetaArticuloDetailView(RetrieveUpdateDestroyAPIView):
     queryset = EtiquetaArticulo.objects.all()
     serializer_class = EtiquetaArticuloSerializer
+    permission_classes = [EsAdminGeneralOSoloLectura]
 
 # --- ARTICULO ETIQUETA ---
 class ArticuloEtiquetaListCreateView(ListCreateAPIView):
     queryset = ArticuloEtiqueta.objects.all()
     serializer_class = ArticuloEtiquetaSerializer
+    permission_classes = [EsAdminGeneralOSoloLectura]
 
 class ArticuloEtiquetaDetailView(RetrieveUpdateDestroyAPIView):
     queryset = ArticuloEtiqueta.objects.all()
     serializer_class = ArticuloEtiquetaSerializer
+    permission_classes = [EsAdminGeneralOSoloLectura]
 
 # --- GALERÍA COMUNITARIA ---
 class GaleriaComunitariaListCreateView(ListCreateAPIView):
     queryset = GaleriaComunitaria.objects.all()
     serializer_class = GaleriaComunitariaSerializer
+    permission_classes = [IsAuthenticatedOrReadOnly]
+
+    def perform_create(self, serializer):
+        serializer.save(usuario=self.request.user)
 
 class GaleriaComunitariaDetailView(RetrieveUpdateDestroyAPIView):
     queryset = GaleriaComunitaria.objects.all()
     serializer_class = GaleriaComunitariaSerializer
+    permission_classes = [EsAutorOAdminGeneralOSoloLectura]
 
 # --- COMENTARIOS GALERÍA ---
 # 🔴 Lista de palabras ofensivas
@@ -272,87 +382,104 @@ class ComentariosGaleriaListCreateView(ListCreateAPIView):
 class ComentariosGaleriaDetailView(RetrieveUpdateDestroyAPIView):
     queryset = ComentariosGaleria.objects.all()
     serializer_class = ComentariosGaleriaSerializer
-    permission_classes = [IsAuthenticatedOrReadOnly]
+    permission_classes = [EsAutorOAdminGeneralOSoloLectura]
 
 # --- LUGARES TURÍSTICOS ---
 class LugaresTuristicosListCreateView(ListCreateAPIView):
     queryset = LugaresTuristicos.objects.all()
     serializer_class = LugaresTuristicosSerializer
+    permission_classes = [EsAdminGeneralOSoloLectura]
 
 class LugaresTuristicosDetailView(RetrieveUpdateDestroyAPIView):
     queryset = LugaresTuristicos.objects.all()
     serializer_class = LugaresTuristicosSerializer
+    permission_classes = [EsAdminGeneralOSoloLectura]
 
 # --- FOTOS LUGARES ---
 class FotosLugaresListCreateView(ListCreateAPIView):
     queryset = FotosLugares.objects.all()
     serializer_class = FotosLugaresSerializer
+    permission_classes = [EsAdminGeneralOSoloLectura]
 
 class FotosLugaresDetailView(RetrieveUpdateDestroyAPIView):
     queryset = FotosLugares.objects.all()
     serializer_class = FotosLugaresSerializer
+    permission_classes = [EsAdminGeneralOSoloLectura]
 
 # --- MENSAJES CONTACTO ---
 class MensajesContactoListCreateView(ListCreateAPIView):
+    """Cualquier visitante puede enviar un mensaje; solo el Admin General los lee."""
     queryset = MensajesContacto.objects.filter(archivado=False)
     serializer_class = MensajesContactoSerializer
-    permission_classes = [AllowAny] 
+
+    def get_permissions(self):
+        if self.request.method == 'POST':
+            return [AllowAny()]
+        return [EsAdminGeneral()]
+
+    def perform_create(self, serializer):
+        # Un visitante no decide si su mensaje aparece como leído o archivado.
+        serializer.save(leido=False, archivado=False)
 
 class MensajesContactoDetailView(RetrieveUpdateDestroyAPIView):
     queryset = MensajesContacto.objects.all()
     serializer_class = MensajesContactoSerializer
-    permission_classes = [AllowAny]
-    
+    permission_classes = [EsAdminGeneral]
+
     def retrieve(self, request, *args, **kwargs):
         # Marcar como leído cuando se visualiza
         instance = self.get_object()
         instance.leido = True
         instance.save()
         return super().retrieve(request, *args, **kwargs)
-    
+
     def destroy(self, request, *args, **kwargs):
         # En lugar de eliminar, archivamos
         instance = self.get_object()
         instance.archivado = True
         instance.save()
         return Response({'mensaje': 'Mensaje archivado'}, status=status.HTTP_200_OK)
-    
+
 # --- REDES SOCIALES ---
 class RedSocialListCreateView(ListCreateAPIView):
     queryset = RedSocial.objects.all()
     serializer_class = RedSocialSerializer
-   
+    permission_classes = [EsAdminGeneralOSoloLectura]
+
 class RedSocialDetailView(RetrieveUpdateDestroyAPIView):
     queryset = RedSocial.objects.all()
     serializer_class = RedSocialSerializer
+    permission_classes = [EsAdminGeneralOSoloLectura]
 
 # --- RESTAURANTE-RED SOCIAL (Intermedia) ---
-class RestauranteRedSocialListCreateView(ListCreateAPIView):
+class RestauranteRedSocialListCreateView(RestaurantePropioMixin, ListCreateAPIView):
     queryset = RestauranteRedSocial.objects.all()
     serializer_class = RestauranteRedSocialSerializer
+    permission_classes = [EsPropietarioRestauranteOSoloLectura]
 
-class RestauranteRedSocialDetailView(RetrieveUpdateDestroyAPIView):
+class RestauranteRedSocialDetailView(RestaurantePropioMixin, RetrieveUpdateDestroyAPIView):
     queryset = RestauranteRedSocial.objects.all()
     serializer_class = RestauranteRedSocialSerializer
+    permission_classes = [EsPropietarioRestauranteOSoloLectura]
 
 # --- REGISTRO COMBINADO RESTAURANTE ---
 class RestauranteRegistrationView(CreateAPIView):
     """
-    Vista para el registro combinado de un PerfilUsuario (Admin Restaurante) 
+    Vista para el registro combinado de un PerfilUsuario (Admin Restaurante)
     y su Restaurante asociado.
     """
     serializer_class = RestauranteRegistrationSerializer
-    permission_classes = [AllowAny] 
-    
+    permission_classes = [AllowAny]
+
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        
+
         # La función create del serializer devuelve un diccionario con 'user' y 'restaurante'
         data = serializer.save()
         user = data['user']
         restaurante = data['restaurante']
-        
+
         # Preparamos una respuesta informativa para el frontend
         respuesta = {
             'mensaje': 'Registro de restaurante y propietario exitoso.',
@@ -369,118 +496,16 @@ class RestauranteRegistrationView(CreateAPIView):
             }
         }
         return Response(respuesta, status=status.HTTP_201_CREATED)
-    
-# --- CONFIGURACION ---   
+
+# --- CONFIGURACION ---
 class VistaConfiguracionPlataforma(RetrieveUpdateAPIView):
     """
     Vista para obtener y actualizar la configuración de la plataforma.
-    Solo Admin General puede actualizar.
     GET: Cualquiera puede ver
     PUT/PATCH: Solo Admin General
     """
     serializer_class = SerializadorConfiguracionPlataforma
-    
+    permission_classes = [EsAdminGeneralOSoloLectura]
+
     def get_object(self):
         return ConfiguracionPlataforma.obtener_instancia()
-    
-    def get_permissions(self):
-        # GET (retrieve) es público
-        if self.request.method == 'GET':
-            return []
-        # PUT/PATCH solo para Admin General
-        else:
-            return [AllowAny()]
-    
-    def verificar_admin_general(self):
-        """Verifica si el usuario es Admin General"""
-        try:
-            grupo_admin = Group.objects.get(name='Admin General')
-            if grupo_admin not in self.request.user.groups.all():
-                return False
-            return True
-        except Group.DoesNotExist:
-            return False
-    
-    def update(self, request, *args, **kwargs):
-        #if not self.verificar_admin_general():
-        #    return Response(
-        #        {'error': 'Solo Admin General puede actualizar la configuración'},
-        #        status=status.HTTP_403_FORBIDDEN
-        #    )
-        return super().update(request, *args, **kwargs)
-    
-    def partial_update(self, request, *args, **kwargs):
-        #if not self.verificar_admin_general():
-        #    return Response(
-        #        {'error': 'Solo Admin General puede actualizar la configuración'},
-        #        status=status.HTTP_403_FORBIDDEN
-        #    )
-        return super().partial_update(request, *args, **kwargs)      
-
-class CrearPedidoView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    @transaction.atomic
-    def post(self, request):
-        data = request.data
-        items = data.get("items", [])
-
-        if not items:
-            return Response({"error": "El pedido no tiene platillos"}, status=400)
-
-        restaurante_id = data.get("restaurante")
-        subtotal = data.get("subtotal")
-        total = data.get("total")
-        metodo_pago = data.get("metodo_pago", "simulado")
-
-        if not restaurante_id or subtotal is None or total is None:
-            return Response({"error": "Faltan campos obligatorios"}, status=400)
-
-        restaurante = get_object_or_404(Restaurante, id=restaurante_id)
-
-        pedido = Pedido.objects.create(
-            usuario=request.user,
-            restaurante=restaurante,
-            subtotal=subtotal,
-            total=total,
-            metodo_pago=metodo_pago,
-            estado_pedido="pendiente"
-        )
-
-        for item in items:
-            platillo_id = item.get("platillo")
-            cantidad = item.get("cantidad")
-            precio_unitario = item.get("precio_unitario")
-
-            if not platillo_id or cantidad is None or precio_unitario is None:
-                transaction.set_rollback(True)
-                return Response({"error": "Item incompleto"}, status=400)
-
-            platillo = get_object_or_404(Platillo, id=platillo_id)
-            DetallePedido.objects.create(
-                pedido=pedido,
-                platillo=platillo,
-                cantidad=cantidad,
-                precio_unitario=precio_unitario,
-                subtotal=cantidad * precio_unitario
-            )
-
-        return Response(
-            {"pedido_id": pedido.id, "mensaje": "Pedido simulado correctamente"},
-            status=201
-        )
-
-class PedidoListCreateView(ListCreateAPIView):
-    queryset = Pedido.objects.all().order_by('-fecha_pedido')
-    serializer_class = CrearPedidoSerializer
-    permission_classes = [IsAuthenticated]
-
-    def get_queryset(self):
-        # Solo devuelve los pedidos del usuario logueado
-        return Pedido.objects.filter(usuario=self.request.user).order_by('-fecha_pedido')
-
-    @transaction.atomic
-    def perform_create(self, serializer):
-        # Guardar pedido y detalles en una transacción
-        serializer.save()
-    

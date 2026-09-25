@@ -1,6 +1,6 @@
-import axios from 'axios';
+import axios from '../AxiosConfig';
 
-const API_URL = 'http://localhost:8000/api/mensajes-contacto';
+const API_URL = 'mensajes-contacto';
 
 // Obtener todos los mensajes
 export const obtenerMensajes = async () => {
@@ -27,9 +27,7 @@ export const obtenerMensajeDetalle = async (id) => {
 // Eliminar un mensaje
 export const eliminarMensaje = async (id) => {
   try {
-    const response = await axios.delete(`${API_URL}/${id}`, {
-      withCredentials: true
-    });
+    const response = await axios.delete(`${API_URL}/${id}`);
     return response.data;
   } catch (error) {
     console.error('Error al eliminar mensaje:', error);

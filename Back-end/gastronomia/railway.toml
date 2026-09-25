@@ -1,0 +1,7 @@
+# Configuración de Railway para el back-end (Root Directory = Back-end/gastronomia)
+[deploy]
+# Antes de cada despliegue: aplica migraciones y asegura que existan los roles.
+preDeployCommand = "python manage.py migrate --noinput && python manage.py crear_grupos"
+startCommand = "python manage.py collectstatic --noinput && gunicorn gastronomia.wsgi --bind 0.0.0.0:$PORT --workers 2 --timeout 60"
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3

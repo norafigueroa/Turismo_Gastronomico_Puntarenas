@@ -85,7 +85,10 @@ def authenticated_client(usuario_cliente):
     """Client autenticado como Cliente"""
     client = APIClient()
     refresh = RefreshToken.for_user(usuario_cliente)
-    client.cookies.load({'access_token': str(refresh.access_token)})
+    client.cookies.load({
+        'access_token': str(refresh.access_token),
+        'refresh_token': str(refresh),
+    })
     return client
 
 

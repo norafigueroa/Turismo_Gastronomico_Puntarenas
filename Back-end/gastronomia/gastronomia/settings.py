@@ -12,23 +12,69 @@ https://docs.djangoproject.com/en/5.1/ref/settings/
 import pymysql
 pymysql.install_as_MySQLdb()
 
+import os
 from pathlib import Path
 from datetime import timedelta
 
+from django.core.exceptions import ImproperlyConfigured
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+# Carga las variables desde Back-end/gastronomia/.env si python-dotenv está instalado
+# (pip install python-dotenv). Si no, se usan las variables de entorno del sistema.
+try:
+    from dotenv import load_dotenv
+    load_dotenv(BASE_DIR / '.env')
+except ImportError:
+    pass
+
+
+def _leer_env(nombre, por_defecto=None):
+    valor = os.environ.get(nombre, por_defecto)
+    if valor is None:
+        raise ImproperlyConfigured(
+            f"Falta la variable de entorno {nombre}. Copia .env.example a .env y complétala."
+        )
+    return valor
+
+
+def _leer_lista(nombre, por_defecto=''):
+    return [v.strip() for v in os.environ.get(nombre, por_defecto).split(',') if v.strip()]
+
+
+def _leer_primero(nombres, por_defecto=''):
+    """Devuelve la primera variable definida de la lista (ej. DB_HOST o, en Railway, MYSQLHOST)."""
+    for nombre in nombres:
+        if os.environ.get(nombre):
+            return os.environ[nombre]
+    return por_defecto
 
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.1/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-tzj7p2_a^p8orj*x0!)0&=#dtp$qy%p0vs_(eb$fthjb=^%mui'
+SECRET_KEY = _leer_env('DJANGO_SECRET_KEY')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = _leer_env('DJANGO_DEBUG', 'False').lower() in ('1', 'true', 'yes')
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = _leer_lista('DJANGO_ALLOWED_HOSTS', 'localhost,127.0.0.1')
+
+# Railway expone el dominio público del servicio en esta variable.
+_DOMINIO_RAILWAY = os.environ.get('RAILWAY_PUBLIC_DOMAIN', '')
+if _DOMINIO_RAILWAY:
+    ALLOWED_HOSTS.append(_DOMINIO_RAILWAY)
+
+# Las cookies solo viajan por HTTPS cuando DEBUG está apagado (producción).
+AUTH_COOKIE_SECURE = not DEBUG
+SESSION_COOKIE_SECURE = not DEBUG
+CSRF_COOKIE_SECURE = not DEBUG
+
+if not DEBUG:
+    # Railway termina el HTTPS en su proxy y reenvía la petición por HTTP.
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
 import cloudinary
 
@@ -51,9 +97,9 @@ INSTALLED_APPS = [
 
 
 cloudinary.config(
-    cloud_name = "dujs1kx4w",
-    api_key = "188183658429357",
-    api_secret = "v3o4UF9DhYd0-wBoOjj8rb-CNTI",
+    cloud_name = _leer_env('CLOUDINARY_CLOUD_NAME', ''),
+    api_key = _leer_env('CLOUDINARY_API_KEY', ''),
+    api_secret = _leer_env('CLOUDINARY_API_SECRET', ''),
     secure=True
 )
 
@@ -66,6 +112,7 @@ AUTH_USER_MODEL = 'api.PerfilUsuario'
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',  # sirve los estáticos (admin, DRF) en producción
     'corsheaders.middleware.CorsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -75,18 +122,21 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
+# Orígenes del front-end. En producción, con el proxy /api de Vercel, el navegador habla con un
+# solo dominio y CORS casi no interviene; aun así se puede ampliar con CORS_ALLOWED_ORIGINS.
 CORS_ALLOWED_ORIGINS = [
-    "http://localhost:3000",      
-    "http://localhost:5173",      
+    "http://localhost:3000",
+    "http://localhost:5173",
     "http://127.0.0.1:3000",
     "http://127.0.0.1:5173",
-]
+] + _leer_lista('CORS_ALLOWED_ORIGINS')
 
 CORS_ALLOW_CREDENTIALS = True
 
-CSRF_TRUSTED_ORIGINS = [
-    "http://localhost:5173",
-]
+# Deben incluir el esquema (https://...). Se usa, por ejemplo, para entrar al /admin de Django.
+CSRF_TRUSTED_ORIGINS = ["http://localhost:5173"] + _leer_lista('CSRF_TRUSTED_ORIGINS')
+if _DOMINIO_RAILWAY:
+    CSRF_TRUSTED_ORIGINS.append(f"https://{_DOMINIO_RAILWAY}")
 
 REST_FRAMEWORK = {
     'DEFAULT_PARSER_CLASSES': [
@@ -98,6 +148,12 @@ REST_FRAMEWORK = {
     
     'DEFAULT_AUTHENTICATION_CLASSES': [
         'api.middleware.CookieJWTAuthentication',
+    ],
+
+    # Cerrado por defecto: cada vista pública debe declararlo explícitamente
+    # (ver api/permissions.py).
+    'DEFAULT_PERMISSION_CLASSES': [
+        'rest_framework.permissions.IsAuthenticated',
     ],
 }
 
@@ -149,12 +205,13 @@ WSGI_APPLICATION = 'gastronomia.wsgi.application'
 
 DATABASES = {
     'default': {
-        'ENGINE': 'mysql.connector.django',
-        'NAME': 'gastronomia',
-        'USER': 'root',
-        'PASSWORD': '1234',
-        'HOST': '127.0.0.1',
-        'PORT': 3306, 
+        'ENGINE': 'django.db.backends.mysql',  # con PyMySQL (ver pymysql.install_as_MySQLdb arriba)
+        # Railway define MYSQLDATABASE, MYSQLUSER, ...; DB_* tiene prioridad si existen.
+        'NAME': _leer_primero(['DB_NAME', 'MYSQLDATABASE'], 'gastronomia'),
+        'USER': _leer_primero(['DB_USER', 'MYSQLUSER'], 'root'),
+        'PASSWORD': _leer_primero(['DB_PASSWORD', 'MYSQLPASSWORD'], ''),
+        'HOST': _leer_primero(['DB_HOST', 'MYSQLHOST'], '127.0.0.1'),
+        'PORT': int(_leer_primero(['DB_PORT', 'MYSQLPORT'], '3306')),
         'OPTIONS': {
             'charset': 'utf8mb4',
         },
@@ -197,6 +254,12 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/5.1/howto/static-files/
 
 STATIC_URL = 'static/'
+STATIC_ROOT = BASE_DIR / 'staticfiles'
+
+STORAGES = {
+    'default': {'BACKEND': 'django.core.files.storage.FileSystemStorage'},
+    'staticfiles': {'BACKEND': 'whitenoise.storage.CompressedStaticFilesStorage'},
+}
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.1/ref/settings/#default-auto-field

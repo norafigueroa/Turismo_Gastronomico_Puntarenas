@@ -2,6 +2,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework import status
+from django.conf import settings
 from django.contrib.auth import authenticate
 from django.contrib.auth.models import Group
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -60,7 +61,7 @@ def login_view(request):
             key='access_token',
             value=access_token,
             httponly=True,
-            secure=False,  # ⚠️ Cambiar a True en producción
+            secure=settings.AUTH_COOKIE_SECURE,
             samesite='Lax',
             max_age=3600,  # 60 minutos = 3600 segundos
             path='/',
@@ -71,7 +72,7 @@ def login_view(request):
             key='refresh_token',
             value=refresh_token,
             httponly=True,
-            secure=False,  # ⚠️ Cambiar a True en producción
+            secure=settings.AUTH_COOKIE_SECURE,
             samesite='Lax',
             max_age=604800,  # 7 días = 604800 segundos
             path='/',
@@ -119,7 +120,7 @@ def token_refresh_view(request):
             key='access_token',
             value=new_access_token,
             httponly=True,
-            secure=False,  # ⚠️ Cambiar a True en producción
+            secure=settings.AUTH_COOKIE_SECURE,
             samesite='Lax',
             max_age=3600,  # 60 minutos
             path='/',
@@ -195,8 +196,8 @@ def register_cliente(request):
     3. Retorna datos del usuario creado
     """
     try:
-        # Obtener grupo Cliente
-        grupo_cliente = Group.objects.get(name='Cliente')
+        # El rol Cliente es el rol base sin permisos especiales: se crea si aún no existe.
+        grupo_cliente, _ = Group.objects.get_or_create(name='Cliente')
         
         # Validar que username y email no existan
         username = request.data.get('username')
@@ -251,8 +252,9 @@ def register_cliente(request):
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
     except Exception as excepcion:
+        # El detalle solo va al log del servidor; al cliente no se le exponen errores internos.
         print(f'❌ Error en registro: {str(excepcion)}')
         return Response(
-            {'error': str(excepcion)},
+            {'error': 'No se pudo completar el registro. Inténtalo de nuevo.'},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )

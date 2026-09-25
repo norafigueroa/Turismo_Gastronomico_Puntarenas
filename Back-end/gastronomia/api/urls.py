@@ -42,6 +42,7 @@ urlpatterns = [
     # Pedidos
     path('pedidos/', PedidoListCreateView.as_view(), name="crear y listar pedidos"),
     path('pedidos/<int:pk>', PedidoDetailView.as_view(), name="actualizar y eliminar pedido"),
+    path('pedidos/<int:pk>/', PedidoDetailView.as_view()),  # el front-end lo llama con "/" final
     path('pedidos/admin/', PedidoListAdminView.as_view(), name='pedidos-admin'),
 
     # Reseñas

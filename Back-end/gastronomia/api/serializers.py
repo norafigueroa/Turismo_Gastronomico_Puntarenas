@@ -1,10 +1,27 @@
 from rest_framework import serializers
 from django.contrib.auth.models import User, Group
 from django.contrib.auth.hashers import make_password
+from django.contrib.auth.password_validation import validate_password
 from .models import *
 from django.db.models import Avg
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from decimal import Decimal, ROUND_HALF_UP
+from django.db import transaction
+from .permissions import es_admin_general
+
+
+def _solicitante_es_admin_general(serializador):
+    """True si la petición asociada al serializador viene de un Admin General."""
+    solicitud = serializador.context.get('request')
+    return solicitud is not None and es_admin_general(solicitud.user)
+
+
+def calcular_precio_final(platillo):
+    """Precio vigente de un platillo (con su promoción, si la tiene), a 2 decimales."""
+    precio = platillo.precio
+    if platillo.promocion and platillo.porcentaje:
+        precio = precio - (precio * platillo.porcentaje / 100)
+    return Decimal(precio).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
 
 
 class PerfilUsuarioSerializer(serializers.ModelSerializer):
@@ -33,6 +50,19 @@ class PerfilUsuarioSerializer(serializers.ModelSerializer):
             'username': {'required': True, 'allow_blank': False}
         }
 
+    def validate_email(self, value):
+        existentes = PerfilUsuario.objects.filter(email__iexact=value)
+        if self.instance is not None:
+            existentes = existentes.exclude(pk=self.instance.pk)
+        if existentes.exists():
+            raise serializers.ValidationError("Este email ya está registrado.")
+        return value
+
+    def validate_password(self, value):
+        # Aplica los validadores de AUTH_PASSWORD_VALIDATORS (largo mínimo, contraseñas comunes, etc.)
+        validate_password(value)
+        return value
+
     def create(self, validated_data):
         groups_data = validated_data.pop('groups', [])
         validated_data['password'] = make_password(validated_data['password'])
@@ -44,6 +74,11 @@ class PerfilUsuarioSerializer(serializers.ModelSerializer):
     def update(self, instance, validated_data):
         groups_data = validated_data.pop('groups', None)
         password = validated_data.pop('password', None)
+
+        # Un usuario no puede cambiarse a sí mismo el rol ni reactivarse: solo el Admin General.
+        if not _solicitante_es_admin_general(self):
+            groups_data = None
+            validated_data.pop('is_active', None)
 
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
@@ -98,6 +133,13 @@ class RestauranteSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("El nombre del restaurante no puede estar vacío.")
         return value.title()
 
+    def update(self, instance, validated_data):
+        # El dueño no puede aprobarse, cambiar su estado ni traspasar el restaurante.
+        if not _solicitante_es_admin_general(self):
+            for campo in ('estado', 'verificado', 'usuario_propietario', 'total_resenas'):
+                validated_data.pop(campo, None)
+        return super().update(instance, validated_data)
+
 class HorarioRestauranteSerializer(serializers.ModelSerializer):
     class Meta:
         model = HorarioRestaurante
@@ -140,14 +182,7 @@ class PlatilloSerializer(serializers.ModelSerializer):
 
     def get_precio_descuento(self, obj):
         """Calcula el precio final con promoción."""
-        if obj.promocion and obj.porcentaje:
-            try:
-                descuento = (obj.precio * obj.porcentaje) / 100
-                final = obj.precio - descuento
-                return round(final, 2)
-            except:
-                return obj.precio
-        return obj.precio
+        return calcular_precio_final(obj)
 
     def validate(self, data):
         """Evita activar promoción sin porcentaje."""
@@ -164,20 +199,35 @@ class DetallePedidoSerializer(serializers.ModelSerializer):
         fields = ['id', 'platillo', 'platillo_nombre', 'cantidad', 'precio_unitario', 'subtotal']
 
 class PedidoSerializer(serializers.ModelSerializer):
-    detalles = DetallePedidoSerializer(source='detallepedido_set', many=True, read_only=True)
+    detalles = DetallePedidoSerializer(many=True, read_only=True)
     usuario_nombre = serializers.CharField(source='usuario.username', read_only=True)
+    restaurante_nombre = serializers.CharField(source='restaurante.nombre_restaurante', read_only=True)
 
     class Meta:
         model = Pedido
-        fields = ['id', 'usuario', 'usuario_nombre', 'restaurante', 'subtotal', 'total', 'metodo_pago', 'estado_pedido', 'detalles', 'fecha_pedido']
+        fields = ['id', 'usuario', 'usuario_nombre', 'restaurante', 'restaurante_nombre', 'subtotal', 'total', 'metodo_pago', 'estado_pedido', 'detalles', 'fecha_pedido']
+
+
+class PedidoEstadoSerializer(PedidoSerializer):
+    """Edición de un pedido existente: solo se puede cambiar el estado."""
+
+    class Meta(PedidoSerializer.Meta):
+        read_only_fields = [
+            campo for campo in PedidoSerializer.Meta.fields if campo != 'estado_pedido'
+        ]
+
 
 class CrearDetallePedidoSerializer(serializers.ModelSerializer):
     class Meta:
         model = DetallePedido
         fields = ['platillo', 'cantidad', 'precio_unitario']
+        # El precio lo fija el servidor a partir del platillo; el cliente no lo decide.
+        read_only_fields = ['precio_unitario']
+        extra_kwargs = {'cantidad': {'required': True, 'min_value': 1, 'max_value': 100}}
+
 
 class CrearPedidoSerializer(serializers.ModelSerializer):
-    items = CrearDetallePedidoSerializer(many=True, write_only=True)
+    items = CrearDetallePedidoSerializer(many=True, write_only=True, allow_empty=False)
     usuario_nombre = serializers.CharField(source='usuario.username', read_only=True)
     restaurante_nombre = serializers.CharField(source='restaurante.nombre_restaurante', read_only=True)
 
@@ -185,26 +235,50 @@ class CrearPedidoSerializer(serializers.ModelSerializer):
         model = Pedido
         fields = ['id', 'usuario', 'usuario_nombre', 'restaurante', 'restaurante_nombre',
                   'subtotal', 'total', 'metodo_pago', 'estado_pedido', 'items', 'fecha_pedido']
-        read_only_fields = ['id', 'estado_pedido', 'fecha_pedido', 'usuario']
+        # subtotal y total se calculan en el servidor; lo que envíe el cliente se ignora.
+        read_only_fields = ['id', 'estado_pedido', 'fecha_pedido', 'usuario', 'subtotal', 'total']
 
+    def validate(self, attrs):
+        restaurante = attrs['restaurante']
+        for item in attrs['items']:
+            platillo = item['platillo']
+            if platillo.restaurante_id != restaurante.id:
+                raise serializers.ValidationError(
+                    {'items': f"El platillo '{platillo.nombre_platillo}' no pertenece a este restaurante."}
+                )
+            if not platillo.disponible:
+                raise serializers.ValidationError(
+                    {'items': f"El platillo '{platillo.nombre_platillo}' no está disponible."}
+                )
+        return attrs
+
+    @transaction.atomic
     def create(self, validated_data):
         items_data = validated_data.pop('items')
-        usuario = self.context['request'].user
-        validated_data['usuario'] = usuario
+        validated_data['usuario'] = self.context['request'].user
         validated_data['estado_pedido'] = 'pendiente'
 
-        pedido = Pedido.objects.create(**validated_data)
-
+        detalles = []
+        subtotal_pedido = Decimal('0.00')
         for item in items_data:
-            print(item)
-            platillo = item['platillo']
-            DetallePedido.objects.create(
-                pedido=pedido,
-                platillo=platillo,
+            precio = calcular_precio_final(item['platillo'])
+            subtotal_item = precio * item['cantidad']
+            subtotal_pedido += subtotal_item
+            detalles.append(DetallePedido(
+                platillo=item['platillo'],
                 cantidad=item['cantidad'],
-                precio_unitario=item['precio_unitario'],
-                subtotal=item['cantidad'] * item['precio_unitario']
-            )
+                precio_unitario=precio,
+                subtotal=subtotal_item,
+            ))
+
+        pedido = Pedido.objects.create(
+            subtotal=subtotal_pedido,
+            total=subtotal_pedido,
+            **validated_data,
+        )
+        for detalle in detalles:
+            detalle.pedido = pedido
+        DetallePedido.objects.bulk_create(detalles)
 
         return pedido
 
@@ -221,6 +295,7 @@ class ResenaSerializer(serializers.ModelSerializer):
     class Meta:
         model = Resena
         fields = ['id', 'usuario', 'usuario_nombre', 'restaurante', 'calificacion', 'comentario', 'fecha_resena', 'fotos']
+        read_only_fields = ['usuario']  # lo asigna la vista con el usuario autenticado
     
     # ✅ CloudinaryField maneja la validación automáticamente
 
@@ -295,6 +370,7 @@ class GaleriaComunitariaSerializer(serializers.ModelSerializer):
     class Meta:
         model = GaleriaComunitaria
         fields = '__all__'
+        read_only_fields = ['usuario']  # lo asigna la vista con el usuario autenticado
 
     def validate_titulo(self, value):
         if not value.strip():
@@ -306,6 +382,7 @@ class ComentariosGaleriaSerializer(serializers.ModelSerializer):
     class Meta:
         model = ComentariosGaleria
         fields = '__all__'
+        read_only_fields = ['usuario']  # lo asigna la vista con el usuario autenticado
 
     def validate_comentario(self, value):
         if not value.strip():
@@ -448,6 +525,10 @@ class RestauranteRegistrationSerializer(serializers.Serializer):
     latitud = serializers.DecimalField(max_digits=10, decimal_places=8, required=False, allow_null=True)
     
     # Validaciones personalizadas
+    def validate_password(self, value):
+        validate_password(value)
+        return value
+
     def validate(self, data):
         #Validación de usuario único
         if PerfilUsuario.objects.filter(username=data['username']).exists():
@@ -456,7 +537,14 @@ class RestauranteRegistrationSerializer(serializers.Serializer):
             raise serializers.ValidationError({"email": "Este email ya está registrado."})
         return data
 
+    @transaction.atomic
     def create(self, validated_data):
+        # Comprobar el rol antes de crear nada
+        try:
+            grupo_restaurante = Group.objects.get(name='Admin Restaurante')
+        except Group.DoesNotExist:
+            raise serializers.ValidationError({"error": "El grupo 'Admin Restaurante' no existe. Pídele al administrador general que lo cree."})
+
         #Sacar datos del usuario
         user_data = {
             'username': validated_data.pop('username'),
@@ -464,7 +552,7 @@ class RestauranteRegistrationSerializer(serializers.Serializer):
             'password': validated_data.pop('password'),
             'first_name': validated_data.pop('first_name'),
             'last_name': validated_data.pop('last_name'),
-            'telefono': validated_data.pop('telefono'),
+            'telefono': validated_data.pop('telefono', None),
         }
         
         #Crear PerfilUsuario (dueño del restaurante)
@@ -473,20 +561,16 @@ class RestauranteRegistrationSerializer(serializers.Serializer):
         )
         
         #Asignar el rol 'Admin Restaurante'
-        try:
-            grupo_restaurante = Group.objects.get(name='Admin Restaurante')
-            user.groups.add(grupo_restaurante)
-        except Group.DoesNotExist:
-            raise serializers.ValidationError({"error": "El grupo 'Admin Restaurante' no existe. Pídele al administrador general que lo cree."})
-            
+        user.groups.add(grupo_restaurante)
+
         #Crear la entidad Restaurante
         restaurante = Restaurante.objects.create(
             usuario_propietario=user, # 👈 Asigna la FK al usuario recién creado
             categoria=validated_data.get('categoria'),
             nombre_restaurante=validated_data.get('nombre_restaurante'),
             direccion=validated_data.get('direccion'),
-            telefono=validated_data.get('telefono_restaurante'), # Usar el campo de restaurante
-            email=validated_data.get('email_restaurante'),     # Usar el campo de restaurante
+            telefono=validated_data.get('telefono_restaurante') or None, # Usar el campo de restaurante
+            email=validated_data.get('email_restaurante') or None,     # None (no '') para no chocar con unique=True
             longitud=validated_data.get('longitud'),
             latitud=validated_data.get('latitud'),
         )
